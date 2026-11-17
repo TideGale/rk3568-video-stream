@@ -1,5 +1,8 @@
 > 作品集：[nametanguoqiang.github.io](https://nametanguoqiang.github.io/) — 两个项目的实现、实测数据和没做完的部分都在这一页
 
+> 开发日志：[docs/开发日志.md](docs/开发日志.md) — 按天记的推进和卡点
+
+
 # RK3568 视频采集与推流终端
 
 在 RK3568 开发板上打通一条从 USB 摄像头到浏览器的实时视频链路：采集、解耦、本地预览、HTTP 推流、抓拍、状态查询，全部自己实现。
