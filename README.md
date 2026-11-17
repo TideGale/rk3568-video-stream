@@ -50,6 +50,17 @@
 | 系统 | Linux 4.19.232 aarch64 |
 | 交叉编译 | gcc-linaro 7.5.0 aarch64-linux-gnu |
 
+### 构建环境
+
+| 项 | 内容 |
+|---|---|
+| 目标平台 | aarch64 Linux 4.19.232（板卡出厂内核，未自己编内核） |
+| 编译器 | gcc-linaro 7.5.0，`aarch64-linux-gnu-gcc` |
+| 构建系统 | 没有 Makefile，一条 gcc 命令，见下面「编译」 |
+| 运行时依赖 | libc、`pthread`、`libm` |
+| 第三方代码 | `stb_image.h` v2.31，单头文件放在仓库里，不联网取依赖 |
+| 上板验证 | 2026-11，RK3568B2（8GB eMMC）+ Logitech C270 |
+
 ## 目录结构
 
 ```
