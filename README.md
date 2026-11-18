@@ -50,6 +50,16 @@
 | 系统 | Linux 4.19.232 aarch64 |
 | 交叉编译 | gcc-linaro 7.5.0 aarch64-linux-gnu |
 
+
+![硬件全景](docs/img/board-overview.jpg)
+*板子 + USB 摄像头 + HDMI 屏，调试串口也在这一张里*
+
+![板上预览](docs/img/board-screen.jpg)
+*framebuffer 直接写屏，和推流同源*
+
+![摄像头接口](docs/img/board-camera.jpg)
+*摄像头插在板子 USB 口上，UVC 免驱识别*
+
 ### 构建环境
 
 | 项 | 内容 |
@@ -99,6 +109,10 @@ ssh root@<板子IP> "/root/capture /dev/videoN MJPG /root/frame 100000"
   找名字带 `UVC Camera` 的那个，别用 `rkisp_*` 虚拟节点。
 - 可选分辨率的最后一个参数写 `640x480` 这样，不写默认 1280x720。
 
+
+![浏览器推流画面](docs/img/mjpeg-stream.jpg)
+*手机对着屏幕拍的，画面是浏览器里正在播放的 MJPEG 流*
+
 ## 访问
 
 | 路径 | 说明 |
@@ -132,6 +146,19 @@ $ wget -qO- http://172.70.1.33:8080/capture
 **为什么慢客户端直接踢掉**：给每个 socket 设 1 秒发送超时，超时就断开。牺牲慢客户端，换整体不阻塞。真要伺候慢客户端，得给每个人配独立队列，那是另一种量级的工程。
 
 **为什么摄像头重连要重建整套资源**：`mmap` 的映射跟设备 fd 绑定，fd 一关映射就失效。重连必须关流、解映射、关 fd、重开、重新申请、重新映射、重新入队、重新开流。
+
+
+![状态接口](docs/img/status-json.png)
+*`/status` 的原始返回：fps、frames、drop 计数、rss 都在里面*
+
+![累积统计](docs/img/run-stats.png)
+*退出时打印的累计统计，帧序号连着没断*
+
+![启动日志](docs/img/boot-log.png)
+*从打开驱动到四缓冲入队、开始采集的完整过程*
+
+![UVC 识别](docs/img/dmesg-uvc.png)
+*摄像头是内核 UVC 驱动认出来的，不是私有协议*
 
 ## 实测指标
 
