@@ -47,3 +47,7 @@ secrets.h
 
 # 从资料目录拷来的参考笔记，原件在 02_项目实战 里
 RK3568_alsa移植.md
+
+# docs/img 下是展品图，要进仓库（上面的 *.jpg 是抓的测试帧，不进）
+!docs/img/*.jpg
+!docs/img/*.jpeg
