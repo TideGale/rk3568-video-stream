@@ -116,15 +116,25 @@ static long read_rss_kb(void)
 	return rss * (sysconf(_SC_PAGESIZE) / 1024);
 }
 
+// 把运行数据格式化成一行 JSON。HTTP 接口和语音播报共用同一份，
+// 保证"网页上看到的数字"和"嘴上说出来的数字"永远一致
+int net_format_status(char *buf, size_t size)
+{
+	if (buf == NULL || size == 0)
+		return -1;
+
+	return snprintf(buf, size,
+			"{\"fps\":%.1f,\"frames\":%lu,\"drop_stream\":%lu,"
+			"\"drop_preview\":%lu,\"clients\":%d,\"uptime\":%ld,\"rss\":%ld}\n",
+			g_fps, g_frames, g_drop_net, g_drop_prev,
+			g_clicnt, (long)(time(NULL) - g_start), read_rss_kb());
+}
+
 // /status 返回 JSON，浏览器用 JS 解析显示
 static int handle_status(int fd)
 {
 	char body[256];
-	int n = snprintf(body, sizeof(body),
-			 "{\"fps\":%.1f,\"frames\":%lu,\"drop_stream\":%lu,"
-			 "\"drop_preview\":%lu,\"clients\":%d,\"uptime\":%ld,\"rss\":%ld}\n",
-			 g_fps, g_frames, g_drop_net, g_drop_prev,
-			 g_clicnt, (long)(time(NULL) - g_start), read_rss_kb());
+	int n = net_format_status(body, sizeof(body));
 
 	return send_response(fd, "application/json", body, n);
 }
@@ -403,6 +413,39 @@ void net_keep_frame(const struct frame *f)
 	g_snapseq = f->seq;
 
 	pthread_mutex_unlock(&g_snaplock);
+}
+
+// 取一份最新帧的副本给语音模块用（看图回答、语音拍照都靠它）
+// 返回 0 成功并把 malloc 出来的缓冲交给调用者 free；-1 表示还没有帧
+int net_get_frame(unsigned char **buf, size_t *len, unsigned long *seq)
+{
+	pthread_mutex_lock(&g_snaplock);
+
+	if (g_snap == NULL || g_snaplen == 0)
+	{
+		pthread_mutex_unlock(&g_snaplock);
+		return -1;
+	}
+
+	unsigned char *p = malloc(g_snaplen);
+	if (p == NULL)
+	{
+		pthread_mutex_unlock(&g_snaplock);
+		return -1;
+	}
+
+	memcpy(p, g_snap, g_snaplen);
+
+	if (buf != NULL)
+		*buf = p;
+	if (len != NULL)
+		*len = g_snaplen;
+	if (seq != NULL)
+		*seq = g_snapseq;
+
+	pthread_mutex_unlock(&g_snaplock);
+
+	return 0;
 }
 
 void net_update_stats(double fps, unsigned long frames,

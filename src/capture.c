@@ -28,6 +28,9 @@
 #include "ringbuf.h"
 #include "network.h"
 #include "preview.h"
+#include "audio.h"
+#include "voice.h"
+#include "httpclient.h"
 #include <time.h>                       // clock_gettime，算一秒窗口的帧率
 #define BUFFER_COUNT    4				// 4 块够周转，2 块容易等，再多浪费内存
 
@@ -60,7 +63,9 @@ static unsigned int fourcc_code(const char *s)
 }
 static struct ringbuf g_ring_net;       // 推流消费者的队列
 static struct ringbuf g_ring_prev;      // 本地预览消费者的队列
-static volatile int   g_stop = 0;       // 置 1 通知消费者退出
+// volatile：被四条线程轮询读取，由主线程写。不加的话编译器可能把它
+// 缓存进寄存器，线程永远看不到变化。传给 pthread_create 时显式转 void *
+static volatile int   g_stop = 0;       // 置 1 通知所有线程退出
 
 // ---------- 采集设备状态，掉线重连时要整体重建 ----------
 static int                g_fd = -1;                                    // 设备描述符
@@ -405,7 +410,9 @@ int main(int argc, char **argv)
 	if (preview_init("/dev/fb0") < 0)               // 屏幕打不开就别往下走
 		return 1;
 
-	pthread_t tid_net, tid_prev;
+	pthread_t tid_net, tid_prev, tid_audio, tid_voice;
+	int voice_ok = 0;
+
 	if (pthread_create(&tid_net, NULL, net_consumer, NULL) != 0)
 	{
 		perror("pthread_create net");
@@ -416,6 +423,38 @@ int main(int argc, char **argv)
 	{
 		perror("pthread_create prev");
 		return 1;
+	}
+
+	// 语音线程先起，再把它的投递函数挂给音频线程，
+	// 顺序反了的话前几段声音会被丢掉（虽然无所谓，但逻辑上要正）
+	struct ai_config ai_cfg;
+	if (ai_config_load(AI_KEY_PATH, &ai_cfg) == 0)
+	{
+		if (voice_init(&ai_cfg) == 0)
+		{
+			if (pthread_create(&tid_voice, NULL, voice_thread, (void *)&g_stop) == 0)
+				voice_ok = 1;
+			else
+				perror("[VOICE] 语音线程创建失败，只录音不上云");
+		}
+	}
+	else
+	{
+		fprintf(stderr, "[VOICE] 没有密钥文件，语音只落盘不识别\n");
+	}
+
+	// 音频线程：常开录音，听到人声才落盘，同时把段落投给语音线程。
+	// 失败不影响视频链路——音频是旁路，挂了视频还得继续推流
+	int audio_ok = 0;
+	if (audio_init(AUDIO_DEV, AUDIO_DIR) == 0)
+	{
+		if (voice_ok)
+			audio_set_voice_cb(voice_feed);     // 有人声时通知语音线程
+
+		if (pthread_create(&tid_audio, NULL, audio_thread, (void *)&g_stop) == 0)
+			audio_ok = 1;
+		else
+			perror("[AUD] 音频线程创建失败，视频不受影响");
 	}
 	// ---------- [6] 循环取帧 ----------
 
@@ -499,9 +538,22 @@ int main(int argc, char **argv)
 	}
 
 	// 通知消费者退出，等它把缓冲里的帧取完再往下走
+	// 顺序很关键：先置 g_stop，再 join。反过来音频线程永远等不到停止信号
 	g_stop = 1;
 	pthread_join(tid_net, NULL);
 	pthread_join(tid_prev, NULL);
+
+	if (audio_ok)
+	{
+		pthread_join(tid_audio, NULL);
+		audio_deinit();
+	}
+
+	if (voice_ok)
+	{
+		pthread_join(tid_voice, NULL);
+		voice_deinit();
+	}
 
 	net_stop();
 	preview_deinit();                       // 线程已经 join 完，这时候才敢解映射

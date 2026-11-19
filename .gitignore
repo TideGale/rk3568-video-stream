@@ -3,6 +3,7 @@ build/
 *.o
 *.a
 *.so
+*.d
 /probe
 /capture
 /app
@@ -51,3 +52,13 @@ RK3568_alsa移植.md
 # docs/img 下是展品图，要进仓库（上面的 *.jpg 是抓的测试帧，不进）
 !docs/img/*.jpg
 !docs/img/*.jpeg
+
+# 其余编译产物，make clean 会清
+/aitest
+/audiorec
+/alsa-lib-1.2.9/
+/RK3568_alsa/
+
+# 云端密钥，只在本地和板子上存在，绝不能进仓库
+aikey
+cacert.pem

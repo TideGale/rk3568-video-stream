@@ -23,6 +23,13 @@
 | F4 | 远程抓拍 | HTTP 请求存一张 JPEG，返回路径和大小 | 完成 |
 | F5 | 状态查询 | 帧率、丢帧、连接数、运行时长、内存占用 | 完成 |
 | F6 | 异常恢复 | 客户端断开不崩、摄像头拔掉自动重连 | 完成 |
+| F7 | 常开录音 | ALSA 采集，每 3 秒一段，检测到人声才落盘 | 完成 |
+| F8 | 语音识别 | 录音段落送云端转文字 | 完成 |
+| F9 | 语音触发动作 | 说"拍一张"就抓帧存文件 | 完成 |
+| F10 | 看图回答 | 说"桌上有什么"，抓帧送多模态模型回答 | 完成 |
+| F11 | 语音播报 | 把回答念出来 | 待耳机到货 |
+
+F7 到 F10 是 v2.0 新增的一层：**让设备能听见、能听懂、能回答**。定位没变——端侧只做数据通路，重计算全部上云。
 
 开发步骤：
 
@@ -39,6 +46,10 @@
 | 9 | 抓拍与状态接口 | 完成 |
 | 10 | 异常恢复、多客户端、断流重连 | 完成 |
 | 11 | 压测与文档 | 完成 |
+| 12 | ALSA 音频采集，人声门限 | 完成 |
+| 13 | 交叉编译 openssl/curl，云端接入 | 完成 |
+| 14 | 语音线程：ASR → 意图 → 抓帧 → 回答 | 完成 |
+| 15 | TTS 语音播报 | 待耳机 |
 
 ## 硬件与软件
 
@@ -66,32 +77,57 @@
 |---|---|
 | 目标平台 | aarch64 Linux 4.19.232（板卡出厂内核，未自己编内核） |
 | 编译器 | gcc-linaro 7.5.0，`aarch64-linux-gnu-gcc` |
-| 构建系统 | 没有 Makefile，一条 gcc 命令，见下面「编译」 |
-| 运行时依赖 | libc、`pthread`、`libm` |
-| 第三方代码 | `stb_image.h` v2.31，单头文件放在仓库里，不联网取依赖 |
+| 构建系统 | Makefile（v1.0 时代是单条 gcc，v2.0 起迁到 Makefile，见下面「编译」） |
+| 运行时依赖 | libc、`pthread`、`libm`；alsa/curl/openssl 静态链进二进制，板子上不用另装 |
+| 第三方代码 | `stb_image.h` v2.31、`cJSON` 1.7.19，源码放在 `third_party/` 里，不联网取依赖 |
 | 上板验证 | 2026-11，RK3568B2（8GB eMMC）+ Logitech C270 |
 
 ## 目录结构
 
 ```
 rk3568-video-stream/
-├── probe.c          V4L2 设备能力探测：驱动名、支持格式、分辨率
-├── capture.c        主程序：采集线程、设备重连、两条队列的分发
-├── ringbuf.c/.h     环形缓冲：定长槽位、满丢最旧、丢帧计数
-├── network.c/.h     HTTP 服务：MJPEG 推流、/status、/capture
-├── preview.c/.h     framebuffer 预览：软件解码、缩放、写屏
-├── stb_image.h      JPEG 解码（第三方，单头文件，v2.31）
-└── frame_0.jpg      第 4 步验证用的单帧样本
+├── src/
+│   ├── probe.c          V4L2 设备能力探测：驱动名、支持格式、分辨率
+│   ├── capture.c        主程序：采集线程、设备重连、两条队列的分发
+│   ├── ringbuf.c        环形缓冲：定长槽位、满丢最旧、丢帧计数
+│   ├── network.c        HTTP 服务：MJPEG 推流、/status、/capture
+│   ├── preview.c        framebuffer 预览：软件解码、缩放、写屏
+│   ├── audio.c          ALSA 采集：常开录音，按人声落盘（v2.0）
+│   ├── voice.c          语音交互：识别 → 意图 → 抓帧 → 回答（v2.0）
+│   ├── httpclient.c     HTTPS 请求与密钥配置（v2.0）
+│   ├── ai.c             云端能力：语音识别、看图回答（v2.0）
+│   ├── aitest.c         云端接口的验证工具，四个子命令（v2.0）
+│   └── audiorec.c       独立录音小工具，用来造测试 wav（v2.0）
+├── include/             上面这些模块的头文件
+├── third_party/
+│   ├── stb_image.h      JPEG 解码（v2.31，单头文件）
+│   └── cJSON.c/.h       JSON 解析（1.7.19，单文件）
+├── docs/                开发日志、实拍图、实测数据
+└── Makefile
 ```
 
 ## 编译
 
 ```bash
-aarch64-linux-gnu-gcc -Wall -O2 -pthread -o capture \
-    capture.c ringbuf.c network.c preview.c -lm
+make                # 编 capture（主程序）
+make aitest         # 编云端接口验证工具
+make audiorec       # 编独立录音工具，造测试 wav 用
+make probe          # 编设备探针
+make clean          # 清产物
 ```
 
-`-lm` 不能漏：`stb_image.h` 的 HDR 分支用到 `pow`。必须写在所有 `.c` 后面，链接器是从左到右找符号的。
+默认用 `aarch64-linux-gnu-gcc`，两个第三方库前缀在 Makefile 顶部，换机器只改那两行：
+
+```bash
+ALSA_PREFIX ?= $(HOME)/mylib/arm-alsa     # alsa-lib
+AI_PREFIX   ?= $(HOME)/mylib/arm-ai       # curl + openssl
+```
+
+也可以命令行覆盖：`make ALSA_PREFIX=/opt/alsa AI_PREFIX=/opt/ai`。
+
+**为什么从单条 gcc 迁到 Makefile**：v1.0 只有 5 个文件、一个 `-lm`，一条命令敲得完。v2.0 加到 11 个源文件，还要链接 alsa、curl、openssl 三套交叉编译出来的库，命令行已经长到一屏放不下，参数顺序错了报错还很难看懂。用 Makefile 把链接顺序固定下来，也顺手做到增量编译。
+
+`-lm` 仍然不能漏：`stb_image.h` 的 HDR 分支用到 `pow`。链接顺序是 `-lcurl -lssl -lcrypto` 在前、`-lm -lpthread` 在后，Makefile 里已经排好。
 
 ## 运行
 
@@ -108,6 +144,39 @@ ssh root@<板子IP> "/root/capture /dev/videoN MJPG /root/frame 100000"
   ```
   找名字带 `UVC Camera` 的那个，别用 `rkisp_*` 虚拟节点。
 - 可选分辨率的最后一个参数写 `640x480` 这样，不写默认 1280x720。
+
+### v2.0 的额外准备
+
+语音那条链路要麦克风通路、云端密钥、根证书三样，缺一样程序都不报错——只是录音全静音，或者识别一直失败。这是这套代码最阴的地方，第一次上板务必按顺序做完：
+
+```bash
+# 板子上：麦克风通路 + 录音落盘目录
+amixer -c 0 sset 'Capture MIC Path' 'Main Mic'
+mkdir -p /root/audio_rec
+```
+
+```bash
+# 电脑上：传密钥和根证书
+ssh root@<板子IP> "mkdir -p /root/.config && chmod 700 /root/.config"
+scp aikey root@<板子IP>:/root/.config/aikey
+ssh root@<板子IP> "chmod 600 /root/.config/aikey"
+scp /etc/ssl/certs/ca-certificates.crt root@<板子IP>:/root/cacert.pem
+```
+
+`aikey` 四行，`api_key` 自己保管，不进仓库（`.gitignore` 里已经挡了 `aikey` 和 `cacert.pem`）：
+
+```
+base_url=https://dashscope.aliyuncs.com/compatible-mode/v1
+api_key=sk-...（自己填）
+model=qwen3-vl-plus
+ca_path=/root/cacert.pem
+```
+
+长跑必须挂后台，前台跑会把调试串口占死：
+
+```bash
+nohup /root/capture /dev/video9 MJPG /root/frame 100000 > /root/capture.log 2>&1 &
+```
 
 
 ![浏览器推流画面](docs/img/mjpeg-stream.jpg)
@@ -146,6 +215,14 @@ $ wget -qO- http://172.70.1.33:8080/capture
 **为什么慢客户端直接踢掉**：给每个 socket 设 1 秒发送超时，超时就断开。牺牲慢客户端，换整体不阻塞。真要伺候慢客户端，得给每个人配独立队列，那是另一种量级的工程。
 
 **为什么摄像头重连要重建整套资源**：`mmap` 的映射跟设备 fd 绑定，fd 一关映射就失效。重连必须关流、解映射、关 fd、重开、重新申请、重新映射、重新入队、重新开流。
+
+**为什么音频要常开而不是按键触发**：真实产品都是常开（智能音箱一直听）。常开的代价是绝大部分时间是废话，解法不是关录音，而是**每 3 秒判断一次，没人声就不落盘**。按 1% 说话时间估算，一天约 27 MB；不判断的话是 2.7 GB，两天写满 eMMC。
+
+**为什么语音识别单独一条线程**：识别一次要几百毫秒到几秒，放在录音线程里会让采样断流。现在是录音线程只做采样和入队，语音线程慢慢处理，两边互不阻塞。**这也是单生产者单消费者、队列满了覆盖最旧的那一套**——用户连着说两句时，前一句作废比排队积压合理。
+
+**为什么用字符串匹配判断意图，不用模型**：说"拍一张"必须立刻响应。指令类的话要快、要确定，字符串匹配没有延迟也不会犹豫；只有真正的问题才交给模型。
+
+**为什么回答限三十字**：文字最终要念出来。模型默认会答一百多字，念二十秒。这不是模型不好，是没告诉它约束。
 
 
 ![状态接口](docs/img/status-json.png)
@@ -220,7 +297,11 @@ $ wget -qO- http://172.70.1.33:8080/capture
 
 **本地预览没有双缓冲。** 写显存写到一半碰上屏幕刷新会撕裂，15fps 下不明显。真要治得上显存双缓冲加 panning。
 
-**没有音频，只留单路视频。** 摄像头本身带麦克风，但不在当前功能范围内。
+**语音交互依赖云端。** 断网时录音照常落盘，但不会识别、不会回答。端侧没有本地模型——A55 四核算力不够，这是主动取舍。
+
+**人声门限是拍出来的常数。** 900 来自这块板子实测（安静时峰值约 1000，说话 3000 以上）。换麦克风要重新测，不是通用值。
+
+**`Capture MIC Path` 每次开机重置。** 必须在启动前执行 `amixer -c 0 sset 'Capture MIC Path' 'Main Mic'`，否则录音全是静音而程序不报错。
 
 ## 踩过的坑（摘要）
 
@@ -232,6 +313,9 @@ $ wget -qO- http://172.70.1.33:8080/capture
 | 设备节点漂移 | `open: No such file or directory` | 摄像头每次枚举编号不固定 |
 | 8080 连不上 | `Connection refused` | `main` 里漏了 `net_start` 调用 |
 | 慢客户端拖死全部 | 一个卡，所有客户端都不出画面 | 阻塞 `send`，没设发送超时 |
+| 录音全是静音 | 峰值只有几十，程序不报错 | 开机后 `Capture MIC Path` 复位成 `MIC OFF` |
+| 安静时不停触发 | 云端被"嗯"刷屏 | 人声门限 300 太低，噪声峰值就有上千 |
+| 交叉编译 SSL 失败 | `unsupported ARM architecture` | openssl 用 `--cross-compile-prefix`，不是 `--host` |
 
 ## 许可
 
