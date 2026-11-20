@@ -45,4 +45,7 @@ void http_global_cleanup(void);
 // 配置文件里的 ca_path= 会自动调这个函数
 void http_set_ca(const char *path);
 
+// 把一个 URL 原样下到本地文件。TTS 返回的 wav 链接用它
+int http_get_to_file(const char *url, const char *path);
+
 #endif

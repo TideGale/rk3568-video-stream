@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
 
 // 根证书包路径。空表示用 libcurl 自己找的默认位置
 static char g_ca_path[256];
@@ -315,6 +316,82 @@ int http_post_json(const char *url, const char *api_key,
 	{
 		// 这一类是服务端拒绝：401 密钥错、400 参数错、429 限流
 		fprintf(stderr, "[AI] HTTP %ld, 响应: %.200s\n", http_code, resp);
+		return (int)http_code;
+	}
+
+	return 0;
+}
+
+// 写文件的回调。必须返回实际写入的字节数，
+// 返回少了 curl 会当成写失败直接中断
+struct file_sink
+{
+	FILE *fp;
+	size_t len;
+};
+
+static size_t on_write_file(void *ptr, size_t size, size_t nmemb, void *userp)
+{
+	struct file_sink *s = (struct file_sink *)userp;
+	size_t n = size * nmemb;
+	size_t w = fwrite(ptr, 1, n, s->fp);
+
+	s->len += w;
+	return w;
+}
+
+int http_get_to_file(const char *url, const char *path)
+{
+	if (url == NULL || path == NULL)
+		return -1;
+
+	FILE *fp = fopen(path, "wb");
+	if (fp == NULL)
+	{
+		perror("[AI] fopen");
+		return -1;
+	}
+
+	CURL *curl = curl_easy_init();
+	if (curl == NULL)
+	{
+		fclose(fp);
+		return -1;
+	}
+
+	struct file_sink sink = { fp, 0 };
+
+	curl_easy_setopt(curl, CURLOPT_URL, url);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, on_write_file);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &sink);
+	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+	curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+
+	// 音频链接现在是 http，网关以后换成 https 也能用
+	if (g_ca_path[0] != '\0')
+		curl_easy_setopt(curl, CURLOPT_CAINFO, g_ca_path);
+
+	CURLcode rc = curl_easy_perform(curl);
+
+	long http_code = 0;
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+	curl_easy_cleanup(curl);
+	fclose(fp);
+
+	if (rc != CURLE_OK)
+	{
+		fprintf(stderr, "[AI] 下载失败: %s\n", curl_easy_strerror(rc));
+		unlink(path);
+		return -(int)rc;
+	}
+
+	if (http_code < 200 || http_code >= 300)
+	{
+		fprintf(stderr, "[AI] 下载 HTTP %ld\n", http_code);
+		unlink(path);
 		return (int)http_code;
 	}
 

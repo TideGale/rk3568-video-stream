@@ -41,7 +41,7 @@ VIDEO_OBJ := $(VIDEO_SRC:.c=.o)
 AUDIO_OBJ := src/audio.o
 
 # 云端与语音交互：识别、看图、意图判断。要联网，依赖 curl + openssl
-VOICE_OBJ := src/voice.o src/ai.o src/httpclient.o
+VOICE_OBJ := src/voice.o src/ai.o src/httpclient.o src/tts.o
 
 # 第三方 C 文件，跟主代码一起编
 THIRD_OBJ := third_party/cJSON.o

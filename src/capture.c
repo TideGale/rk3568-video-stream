@@ -30,6 +30,7 @@
 #include "preview.h"
 #include "audio.h"
 #include "voice.h"
+#include "tts.h"
 #include "httpclient.h"
 #include <time.h>                       // clock_gettime，算一秒窗口的帧率
 #define BUFFER_COUNT    4				// 4 块够周转，2 块容易等，再多浪费内存
@@ -456,6 +457,9 @@ int main(int argc, char **argv)
 		else
 			perror("[AUD] 音频线程创建失败，视频不受影响");
 	}
+
+	// 放音通路每次开机重置，这里设一次，念回答才有声音
+	tts_init();
 	// ---------- [6] 循环取帧 ----------
 
 

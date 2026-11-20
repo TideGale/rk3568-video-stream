@@ -11,6 +11,7 @@
 #include "voice.h"
 #include "ai.h"
 #include "network.h"
+#include "tts.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -89,6 +90,25 @@ void voice_last(char *ask, size_t ask_size, char *answer, size_t answer_size)
 	if (answer != NULL && answer_size > 0)
 		snprintf(answer, answer_size, "%s", g_last_ans);
 	pthread_mutex_unlock(&g_lock);
+}
+
+// 播报期间麦克风会把喇叭里的声音又录进来。这段必须丢，
+// 否则刚念完的回答会被当成新问题再问一遍，变成自言自语
+static void drop_pending(void)
+{
+	pthread_mutex_lock(&g_lock);
+	g_ready = 0;
+	pthread_mutex_unlock(&g_lock);
+}
+
+// 念出来。失败只记日志，回答照常留在串口和 /status 里
+static void speak(const char *text)
+{
+	if (text == NULL || text[0] == '\0')
+		return;
+
+	if (tts_say(&g_cfg, text) == 0)
+		drop_pending();
 }
 
 static int contains_any(const char *text, const char *const *words, int n)
@@ -249,6 +269,7 @@ static void handle_segment(const short *pcm, size_t frames)
 		pthread_mutex_unlock(&g_lock);
 
 		fprintf(stderr, "[VOICE] 回答: %s\n", ans);
+		speak(ans);
 		return;
 	}
 
@@ -263,6 +284,7 @@ static void handle_segment(const short *pcm, size_t frames)
 		pthread_mutex_unlock(&g_lock);
 
 		fprintf(stderr, "[VOICE] 回答: %s\n", speech);
+		speak(speech);
 		return;
 	}
 
@@ -279,6 +301,7 @@ static void handle_segment(const short *pcm, size_t frames)
 		pthread_mutex_unlock(&g_lock);
 
 		fprintf(stderr, "[VOICE] 回答: %s\n", ans);
+		speak(ans);
 		return;
 	}
 
@@ -306,6 +329,7 @@ static void handle_segment(const short *pcm, size_t frames)
 	pthread_mutex_unlock(&g_lock);
 
 	fprintf(stderr, "[VOICE] 回答: %s\n", answer);
+	speak(answer);
 }
 
 void *voice_thread(void *arg)
