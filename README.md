@@ -62,14 +62,15 @@ F7 到 F10 是 v2.0 新增的一层：**让设备能听见、能听懂、能回�
 | 交叉编译 | gcc-linaro 7.5.0 aarch64-linux-gnu |
 
 
-![硬件全景](docs/img/board-overview.jpg)
-*板子 + USB 摄像头 + HDMI 屏，调试串口也在这一张里*
 
 ![板上预览](docs/img/board-screen.jpg)
 *framebuffer 直接写屏，和推流同源*
 
 ![摄像头接口](docs/img/board-camera.jpg)
 *摄像头插在板子 USB 口上，UVC 免驱识别*
+
+![麦克风接口](docs/img/board-microphone.jpg)
+*USB 声卡插在板子另一个 USB 口上，2.0 的语音输入从这里进*
 
 ### 构建环境
 
@@ -286,6 +287,17 @@ $ wget -qO- http://172.70.1.33:8080/capture
 像素面积少了四倍，CPU 只降两成，说明**瓶颈不在 JPEG 解码**，而在 `draw_rgb` 那个缩放写屏循环：不管源图多大，输出固定 1024x576，每帧 59 万次像素写入，加上 2.36 MB 显存写，这部分开销跟源分辨率无关。
 
 降分辨率真正的收益是 `drop_preview` 从 1277 变成 0——预览跟得上了。
+
+### 语音链路（v2.0）
+
+![人声门限](docs/img/voice-gate.png)
+*安静段峰值 865/743/726，人声 967，阈值 900 —— 这个门限是量出来的*
+
+![分段落盘](docs/img/voice-segments.png)
+*每段 96044 字节，正好 3 秒 16k 单声道*
+
+![看图问答](docs/img/voice-qa.png)
+*说「桌上有什么」，链路走完 ASR → 抓帧 → 多模态回答*
 
 ## 已知限制
 
