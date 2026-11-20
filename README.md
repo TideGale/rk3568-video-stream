@@ -64,7 +64,7 @@ F7 到 F10 是 v2.0 新增的一层：**让设备能听见、能听懂、能回�
 
 
 ![板上预览](docs/img/board-screen.jpg)
-*framebuffer 直接写屏，和推流同源*
+*板子屏上的开发环境：交叉编译 capture、scp 推到板子，2.0 的音频和网络库都在这一步装进去*
 
 ![摄像头接口](docs/img/board-camera.jpg)
 *摄像头插在板子 USB 口上，UVC 免驱识别*
